@@ -24,13 +24,28 @@ stays thin: argument parsing and output formatting only.
 Bandcamp has no public fan API and its login form has captcha/2FA, so we reuse
 the browser session's `identity` cookie.
 
-`Credentials` resolves the cookie in order:
+`Credentials` (in BandcampKit) resolves the cookie in order:
 
 1. `BANDCAMP_IDENTITY` environment variable
 2. `~/.config/bandcamp-sync/identity` (contents trimmed of whitespace)
 
-If neither exists, fail with instructions: open bandcamp.com logged in →
-browser dev tools → Cookies → copy the value of `identity`.
+and can save a cookie to that file, creating `~/.config/bandcamp-sync/` with
+mode 0700 and writing the file with mode 0600.
+
+If neither source has a cookie, the CLI prompts for it (the prompt lives in the
+executable, not BandcampKit, so the GUI can do its own thing later):
+
+- Print instructions: open bandcamp.com logged in → browser dev tools →
+  Cookies → copy the value of `identity`.
+- Read one line from the terminal with echo disabled (it is a session
+  credential). Empty input aborts.
+- Save it via `Credentials`, print where it was saved, then continue the
+  command.
+- If stdin is not a TTY, do not prompt: fail with `missingCredentials` and the
+  same instructions.
+
+If a stored cookie is later rejected, the `unauthorized` message tells the user
+to delete `~/.config/bandcamp-sync/identity` and rerun to be prompted again.
 
 ## BandcampClient
 
@@ -78,9 +93,9 @@ bandcamp-sync list [--limit <n>] [--json]
 
 Typed `BandcampError`, each mapped to a clear message and non-zero exit:
 
-- `missingCredentials` — with how-to text
+- `missingCredentials` — no cookie and not interactive; with how-to text
 - `unauthorized` — non-2xx from collection_summary, or no `fan_id` in response
-  ("cookie rejected or expired")
+  ("cookie rejected or expired"; suggests deleting the identity file)
 - `http(status:)` — other non-2xx responses
 - `decoding` — unexpected response shape
 - Network errors surface URLSession's message.
@@ -90,7 +105,8 @@ Typed `BandcampError`, each mapped to a clear message and non-zero exit:
 - Unit tests with recorded/handcrafted JSON fixtures through the stub transport:
   pagination across multiple pages, stopping at `limit`, stopping when
   `more_available` is false, date parsing, redownload URL lookup, sorting,
-  unauthorized and decoding errors, credential resolution order.
+  unauthorized and decoding errors, credential resolution order, saving
+  credentials (file contents and permissions, using a temp directory).
 - Real-site verification is manual: run `list` with a real cookie. No network
   in tests.
 
