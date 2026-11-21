@@ -2,11 +2,26 @@ import Foundation
 
 public protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
+    /// Saves the body to a temporary file the caller then owns.
+    func download(for request: URLRequest) async throws -> (URL, URLResponse)
+}
+
+extension HTTPTransport {
+    public func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        let (data, response) = try await data(for: request)
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try data.write(to: file)
+        return (file, response)
+    }
 }
 
 extension URLSession: HTTPTransport {
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await data(for: request, delegate: nil)
+    }
+
+    public func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        try await download(for: request, delegate: nil)
     }
 }
 
@@ -16,7 +31,7 @@ public struct BandcampClient: Sendable {
     static let collectionItemsURL = URL(
         string: "https://bandcamp.com/api/fancollection/1/collection_items")!
 
-    let identity: String
+    public let identity: String
     let transport: any HTTPTransport
     let now: @Sendable () -> Date
 
@@ -71,7 +86,7 @@ public struct BandcampClient: Sendable {
         return Array(result.sorted { $0.purchasedAt > $1.purchasedAt }.prefix(limit))
     }
 
-    private func send(_ request: URLRequest) async throws -> (Data, Int) {
+    func send(_ request: URLRequest) async throws -> (Data, Int) {
         var request = request
         request.setValue("identity=\(identity)", forHTTPHeaderField: "Cookie")
         let (data, response) = try await transport.data(for: request)
