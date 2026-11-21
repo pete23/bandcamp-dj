@@ -24,7 +24,8 @@ stays thin: argument parsing and output formatting only.
 Bandcamp has no public fan API and its login form has captcha/2FA, so we reuse
 the browser session's `identity` cookie.
 
-`Credentials` (in BandcampKit) resolves the cookie in order:
+`Credentials` (in BandcampKit) resolves the cookie, reporting which source it
+came from, in order:
 
 1. `BANDCAMP_IDENTITY` environment variable
 2. `~/.config/bandcamp-sync/identity` (contents trimmed of whitespace)
@@ -44,8 +45,19 @@ executable, not BandcampKit, so the GUI can do its own thing later):
 - If stdin is not a TTY, do not prompt: fail with `missingCredentials` and the
   same instructions.
 
-If a stored cookie is later rejected, the `unauthorized` message tells the user
-to delete `~/.config/bandcamp-sync/identity` and rerun to be prompted again.
+If Bandcamp rejects the cookie (`unauthorized`) and stdin is a TTY, the CLI
+says so ("Bandcamp rejected the saved identity cookie — it has probably
+expired"), runs the same prompt again, saves the new value over the old file and
+retries the command. This repeats until a cookie is accepted or the user enters
+nothing (abort).
+
+Exceptions, where it fails with the `unauthorized` message instead of prompting:
+
+- The cookie came from `BANDCAMP_IDENTITY`: the user controls that value, and a
+  saved file would be ignored while the variable is set. The message names the
+  variable.
+- stdin is not a TTY: the message says to run `bandcamp-sync` interactively to
+  enter a new cookie.
 
 ## BandcampClient
 
@@ -95,7 +107,8 @@ Typed `BandcampError`, each mapped to a clear message and non-zero exit:
 
 - `missingCredentials` — no cookie and not interactive; with how-to text
 - `unauthorized` — non-2xx from collection_summary, or no `fan_id` in response
-  ("cookie rejected or expired"; suggests deleting the identity file)
+  ("cookie rejected or expired"); the CLI turns this into a re-prompt when
+  it can (see Authentication)
 - `http(status:)` — other non-2xx responses
 - `decoding` — unexpected response shape
 - Network errors surface URLSession's message.
@@ -106,7 +119,11 @@ Typed `BandcampError`, each mapped to a clear message and non-zero exit:
   pagination across multiple pages, stopping at `limit`, stopping when
   `more_available` is false, date parsing, redownload URL lookup, sorting,
   unauthorized and decoding errors, credential resolution order, saving
-  credentials (file contents and permissions, using a temp directory).
+  credentials (file contents and permissions, using a temp directory),
+  credential source reporting. The prompt/retry loop is kept in a small
+  function that takes the prompt and the command as closures so it can be
+  tested without a TTY: rejected → prompt → saved → retried; env-var source and
+  non-TTY fail without prompting; empty input aborts.
 - Real-site verification is manual: run `list` with a real cookie. No network
   in tests.
 
