@@ -1,0 +1,11 @@
+{
+  "more_available": false,
+  "last_token": "1763000000:333:a::",
+  "items": [
+    {"sale_item_id": 333, "sale_item_type": "c", "item_type": "package", "band_name": "Artist C", "item_title": "Vinyl LP", "purchased": "01 Oct 2026 18:45:12 GMT", "item_url": "https://artistc.bandcamp.com/album/vinyl-lp"},
+    {"sale_item_id": 444, "item_type": "subscription", "band_name": "Artist D", "item_title": "Fan Club", "purchased": "15 Sep 2026 08:00:00 GMT", "item_url": null}
+  ],
+  "redownload_urls": {
+    "c333": "https://bandcamp.com/download?from=collection&payment_id=333&sig=ghi"
+  }
+}

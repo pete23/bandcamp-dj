@@ -1,0 +1,12 @@
+{
+  "more_available": true,
+  "last_token": "1763200000:111:a::",
+  "items": [
+    {"sale_item_id": 111, "item_type": "album", "band_name": "Artist A", "item_title": "First Album", "purchased": "20 Nov 2026 09:30:00 GMT", "item_url": "https://artista.bandcamp.com/album/first-album", "tralbum_id": 9001},
+    {"sale_item_id": 222, "item_type": "track", "band_name": "Artist B", "item_title": "A Single", "purchased": "21 Nov 2026 10:00:00 GMT", "item_url": "https://artistb.bandcamp.com/track/a-single", "tralbum_id": 9002}
+  ],
+  "redownload_urls": {
+    "p111": "https://bandcamp.com/download?from=collection&payment_id=111&sig=abc",
+    "p222": "https://bandcamp.com/download?from=collection&payment_id=222&sig=def"
+  }
+}
