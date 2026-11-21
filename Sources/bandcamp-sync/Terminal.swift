@@ -21,16 +21,9 @@ enum Terminal {
 }
 
 enum Output {
-    static func table(_ purchases: [Purchase]) -> String {
-        guard !purchases.isEmpty else { return "No purchases found." }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-
-        let rows = [["Date", "Artist", "Title", "Type"]] + purchases.map {
-            [formatter.string(from: $0.purchasedAt), $0.artist, $0.title, $0.itemType.rawValue]
-        }
-        let widths = (0..<4).map { column in rows.map { $0[column].count }.max() ?? 0 }
+    static func table(_ header: [String], _ rows: [[String]]) -> String {
+        let rows = [header] + rows
+        let widths = header.indices.map { column in rows.map { $0[column].count }.max() ?? 0 }
         return rows.map { row in
             zip(row, widths).map { cell, width in
                 cell + String(repeating: " ", count: width - cell.count)
@@ -38,10 +31,18 @@ enum Output {
         }.joined(separator: "\n")
     }
 
-    static func json(_ purchases: [Purchase]) throws -> String {
+    static func day(_ date: Date?) -> String {
+        guard let date else { return "" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    static func json(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return String(decoding: try encoder.encode(purchases), as: UTF8.self)
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
     }
 }
