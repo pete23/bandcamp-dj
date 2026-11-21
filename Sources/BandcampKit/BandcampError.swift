@@ -13,6 +13,9 @@ public enum BandcampError: Error, Equatable, Sendable {
     case aborted
     case http(status: Int)
     case decoding(String)
+    case formatUnavailable(format: String, available: [String])
+    /// A web page came back where the audio file should be.
+    case notAFile
 }
 
 extension BandcampError: LocalizedError, CustomStringConvertible {
@@ -36,6 +39,10 @@ extension BandcampError: LocalizedError, CustomStringConvertible {
             "Bandcamp returned HTTP \(status)."
         case .decoding(let detail):
             "Unexpected response from Bandcamp: \(detail)"
+        case .formatUnavailable(let format, let available):
+            "\(format) isn't offered for this item (available: \(available.joined(separator: ", ")))."
+        case .notAFile:
+            "Bandcamp sent a web page instead of the file; the download link may have expired."
         }
     }
 }

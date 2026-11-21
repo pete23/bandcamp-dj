@@ -3,8 +3,8 @@ import Testing
 
 @testable import BandcampKit
 
-func fixture(_ name: String) throws -> Data {
-    let url = try #require(Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures"))
+func fixture(_ name: String, ext: String = "json") throws -> Data {
+    let url = try #require(Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures"))
     return try Data(contentsOf: url)
 }
 
@@ -13,9 +13,14 @@ final class StubTransport: HTTPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
     private let handler: @Sendable (URLRequest, Int) throws -> (Data, Int)
+    private let headers: @Sendable (URLRequest) -> [String: String]
 
     /// `handler` gets the request and its index, and returns a body and status.
-    init(_ handler: @escaping @Sendable (URLRequest, Int) throws -> (Data, Int)) {
+    init(
+        headers: @escaping @Sendable (URLRequest) -> [String: String] = { _ in [:] },
+        _ handler: @escaping @Sendable (URLRequest, Int) throws -> (Data, Int)
+    ) {
+        self.headers = headers
         self.handler = handler
     }
 
@@ -27,7 +32,7 @@ final class StubTransport: HTTPTransport, @unchecked Sendable {
             return recorded.count - 1
         }
         let (data, status) = try handler(request, index)
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers(request))!
         return (data, response)
     }
 }
