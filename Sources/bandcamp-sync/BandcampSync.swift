@@ -7,7 +7,7 @@ struct BandcampSync: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bandcamp-sync",
         abstract: "Sync your Bandcamp purchases into Apple Music.",
-        subcommands: [List.self]
+        subcommands: [List.self, Music.self]
     )
 }
 
@@ -32,6 +32,14 @@ struct List: AsyncParsableCommand {
             saved: { Terminal.printError("Saved identity cookie to \($0.path).") },
             operation: { try await BandcampClient(identity: $0).purchases(limit: limit) }
         )
-        print(json ? try Output.json(purchases) : Output.table(purchases))
+        if json {
+            print(try Output.json(purchases))
+        } else if purchases.isEmpty {
+            print("No purchases found.")
+        } else {
+            print(Output.table(
+                ["Date", "Artist", "Title", "Type"],
+                purchases.map { [Output.day($0.purchasedAt), $0.artist, $0.title, $0.itemType.rawValue] }))
+        }
     }
 }
