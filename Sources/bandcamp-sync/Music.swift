@@ -20,7 +20,7 @@ struct Music: ParsableCommand {
     }
 
     func run() throws {
-        let all = try MusicLibrary.tracks()
+        let all = try MusicLibrary.tracks(includeLocations: json && tracks)
         if tracks {
             let shown = all.sorted { a, b in
                 let (addedA, addedB) = (a.addedAt ?? .distantPast, b.addedAt ?? .distantPast)

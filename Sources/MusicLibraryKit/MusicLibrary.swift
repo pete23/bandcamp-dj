@@ -18,8 +18,9 @@ public enum MusicLibraryError: Error, CustomStringConvertible, LocalizedError {
 
 /// Reads the Music library through Apple's iTunesLibrary framework (read-only, no Music.app needed).
 public enum MusicLibrary {
-    /// All songs in the library, in library order.
-    public static func tracks() throws -> [Track] {
+    /// All songs in the library, in library order. File locations are slow to read (seconds for a
+    /// large library), so they're left nil unless asked for.
+    public static func tracks(includeLocations: Bool = false) throws -> [Track] {
         let library: ITLibrary
         do {
             library = try ITLibrary(apiVersion: "1.1")
@@ -28,12 +29,12 @@ public enum MusicLibrary {
         }
         return library.allMediaItems
             .filter { $0.mediaKind == .kindSong }
-            .map(Track.init)
+            .map { Track($0, includeLocation: includeLocations) }
     }
 }
 
 extension Track {
-    init(_ item: ITLibMediaItem) {
+    init(_ item: ITLibMediaItem, includeLocation: Bool) {
         self.init(
             persistentID: String(format: "%016llX", item.persistentID.uint64Value),
             title: item.title,
@@ -47,6 +48,6 @@ extension Track {
             addedAt: item.addedDate,
             kind: item.kind,
             comments: item.comments,
-            location: item.location)
+            location: includeLocation ? item.location : nil)
     }
 }

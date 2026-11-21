@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "BandcampKit", targets: ["BandcampKit"]),
         .library(name: "MusicLibraryKit", targets: ["MusicLibraryKit"]),
+        .library(name: "SyncKit", targets: ["SyncKit"]),
         .executable(name: "bandcamp-sync", targets: ["bandcamp-sync"]),
     ],
     dependencies: [
@@ -15,11 +16,13 @@ let package = Package(
     targets: [
         .target(name: "BandcampKit"),
         .target(name: "MusicLibraryKit"),
+        .target(name: "SyncKit", dependencies: ["BandcampKit", "MusicLibraryKit"]),
         .executableTarget(
             name: "bandcamp-sync",
             dependencies: [
                 "BandcampKit",
                 "MusicLibraryKit",
+                "SyncKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -29,5 +32,6 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         .testTarget(name: "MusicLibraryKitTests", dependencies: ["MusicLibraryKit"]),
+        .testTarget(name: "SyncKitTests", dependencies: ["SyncKit"]),
     ]
 )
