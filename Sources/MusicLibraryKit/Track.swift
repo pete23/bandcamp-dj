@@ -15,7 +15,7 @@ public struct Track: Codable, Sendable, Equatable {
     public var addedAt: Date?
     public var kind: String?
     public var comments: String?
-    /// Nil when the track is only in iCloud.
+    /// Nil when the track is only in iCloud, or locations weren't asked for.
     public var location: URL?
 
     public init(
@@ -41,10 +41,16 @@ public struct Track: Codable, Sendable, Equatable {
 
     /// The `https://<name>.bandcamp.com…` link Bandcamp writes into downloaded files' comments.
     public var bandcampURL: URL? {
-        guard let comments,
-            let match = comments.firstMatch(of: /https?:\/\/[A-Za-z0-9-]+\.bandcamp\.com[^\s]*/)
+        // Plain string scanning: Swift Regex is too slow across tens of thousands of tracks.
+        guard let comments, let domain = comments.range(of: ".bandcamp.com"),
+            let scheme = comments[..<domain.lowerBound].range(of: "http", options: .backwards)
         else { return nil }
-        return URL(string: String(match.output))
+        let name = comments[scheme.upperBound..<domain.lowerBound].drop { $0 == "s" }
+        guard name.hasPrefix("://"), name.dropFirst(3).allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }),
+            name.count > 3
+        else { return nil }
+        let end = comments[domain.upperBound...].firstIndex(where: \.isWhitespace) ?? comments.endIndex
+        return URL(string: String(comments[scheme.lowerBound..<end]))
     }
 }
 
