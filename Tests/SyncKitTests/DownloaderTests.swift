@@ -10,20 +10,31 @@ final class FakeBandcamp: HTTPTransport, @unchecked Sendable {
 
     let file: Data
     let offersDownload: Bool
+    /// Download page requests for these purchase IDs fail.
+    let failing: Set<Int>
+    let delay: Duration
     private let lock = NSLock()
     private var fileRequests = 0
+    private var inFlight = 0
+    private var mostInFlight = 0
 
-    init(file: Data, offersDownload: Bool = true) {
+    init(file: Data, offersDownload: Bool = true, failing: Set<Int> = [], delay: Duration = .zero) {
         self.file = file
         self.offersDownload = offersDownload
+        self.failing = failing
+        self.delay = delay
     }
 
     var downloads: Int { lock.withLock { fileRequests } }
+    var peakConcurrency: Int { lock.withLock { mostInFlight } }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let url = request.url!
         let body: Data
         if url.host() == "bandcamp.com" {
+            if let id = Int(url.query()?.split(separator: "=").last ?? ""), failing.contains(id) {
+                return (Data(), HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil)!)
+            }
             let downloads = offersDownload ? #"{"mp3-320": {"size_mb": "1MB", "url": "\#(Self.fileURL)"}}"# : "[]"
             let blob = #"{"digital_items": [{"title": "T", "downloads": \#(downloads)}]}"#
                 .replacingOccurrences(of: "\"", with: "&quot;")
@@ -31,17 +42,33 @@ final class FakeBandcamp: HTTPTransport, @unchecked Sendable {
         } else if url.path.hasPrefix("/statdownload/") {
             body = Data("no".utf8)
         } else {
-            lock.withLock { fileRequests += 1 }
+            lock.withLock {
+                fileRequests += 1
+                inFlight += 1
+                mostInFlight = max(mostInFlight, inFlight)
+            }
+            try await Task.sleep(for: delay)
+            lock.withLock { inFlight -= 1 }
             body = file
         }
         return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
 }
 
-private func purchase(_ type: Purchase.ItemType = .album, artist: String = "Artist", title: String = "Title") -> Purchase {
+private func purchase(
+    _ type: Purchase.ItemType = .album, artist: String = "Artist", title: String = "Title", id: Int = 42
+) -> Purchase {
     Purchase(
-        saleItemID: 42, itemType: type, artist: artist, title: title, purchasedAt: Date(timeIntervalSince1970: 0),
-        itemURL: nil, redownloadURL: URL(string: "https://bandcamp.com/download?id=42"))
+        saleItemID: id, itemType: type, artist: artist, title: title, purchasedAt: Date(timeIntervalSince1970: 0),
+        itemURL: nil, redownloadURL: URL(string: "https://bandcamp.com/download?id=\(id)"))
+}
+
+/// Collects progress reports from concurrent callbacks.
+final class Recorder<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [T] = []
+    func append(_ value: T) { lock.withLock { recorded.append(value) } }
+    var values: [T] { lock.withLock { recorded } }
 }
 
 /// A zip holding `01 Song.mp3` and `cover.jpg`, made with ditto.
@@ -75,15 +102,17 @@ private func makeZip() throws -> Data {
 
     @Test func unzipsAlbumIntoItsOwnFolder() async throws {
         let transport = FakeBandcamp(file: try makeZip())
-        var announced: [DownloadOption] = []
+        let progress = Recorder<Downloader.Progress>()
 
-        let outcome = try await downloader(transport).download(purchase()) { announced.append($0) }
+        let outcome = try await downloader(transport).download(purchase()) { progress.append($0) }
 
         let folder = destination.appending(path: "Artist - Title", directoryHint: .isDirectory)
         #expect(outcome == .downloaded(folder))
         #expect(try contents(folder) == [".bandcamp-purchase.json", "01 Song.mp3", "cover.jpg"])
         #expect(try Data(contentsOf: folder.appending(path: "01 Song.mp3")) == Data("mp3".utf8))
-        #expect(announced.map(\.size) == ["1MB"])
+        #expect(progress.values.first == .preparing)
+        #expect(progress.values.contains(.downloading(received: 0, expected: 1_048_576)))
+        #expect(progress.values.last == .unzipping)
         #expect(try contents(destination) == ["Artist - Title"])
     }
 
@@ -129,6 +158,38 @@ private func makeZip() throws -> Data {
 
         await #expect(throws: DownloadError.self) { try await downloader(transport).download(purchase()) }
         #expect(try contents(destination).isEmpty)
+    }
+
+    @Test func downloadAllRespectsParallelLimit() async throws {
+        let transport = FakeBandcamp(file: Data("ID3".utf8), delay: .milliseconds(50))
+        let purchases = (1...7).map { purchase(.track, title: "Song \($0)", id: $0) }
+
+        let results = await downloader(transport).downloadAll(purchases, parallel: 3)
+
+        #expect(transport.downloads == 7)
+        #expect(transport.peakConcurrency == 3)
+        #expect(results.allSatisfy { if case .finished(.downloaded) = $0 { true } else { false } })
+    }
+
+    @Test func downloadAllKeepsGoingAfterFailure() async throws {
+        let transport = FakeBandcamp(file: Data("ID3".utf8), failing: [2])
+        let purchases = (1...3).map { purchase(.track, title: "Song \($0)", id: $0) }
+        let updates = Recorder<(Int, DownloadStatus)>()
+
+        let results = await downloader(transport).downloadAll(purchases, parallel: 2) { updates.append(($0, $1)) }
+
+        #expect(results[1] == .failed("Bandcamp returned HTTP 500."))
+        #expect(results[0] == .finished(.downloaded(destination.appending(path: "Artist - Song 1", directoryHint: .isDirectory))))
+        #expect(results[2] == .finished(.downloaded(destination.appending(path: "Artist - Song 3", directoryHint: .isDirectory))))
+        // Every purchase's last update is its final status.
+        for index in 0..<3 {
+            #expect(updates.values.last { $0.0 == index }?.1 == results[index])
+        }
+        #expect(updates.values.contains { $0.0 == 0 && $0.1 == .active(.preparing) })
+    }
+
+    @Test func downloadAllWithNothingToDo() async {
+        #expect(await downloader(FakeBandcamp(file: Data())).downloadAll([], parallel: 6).isEmpty)
     }
 
     @Test(arguments: [

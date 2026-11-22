@@ -26,6 +26,23 @@ public struct DownloadOption: Sendable, Equatable {
     public var url: URL
     /// Bandcamp's own label, e.g. `95.5MB`.
     public var size: String?
+
+    public init(format: DownloadFormat, url: URL, size: String?) {
+        self.format = format
+        self.url = url
+        self.size = size
+    }
+
+    /// `size` in bytes, for progress when the server doesn't say.
+    public var approximateBytes: Int64? {
+        guard let size = size?.trimmingCharacters(in: .whitespaces).uppercased() else { return nil }
+        let units: [(String, Double)] = [("GB", 1_073_741_824), ("MB", 1_048_576), ("KB", 1024)]
+        for (unit, multiplier) in units where size.hasSuffix(unit) {
+            guard let value = Double(size.dropLast(unit.count).trimmingCharacters(in: .whitespaces)) else { return nil }
+            return Int64(value * multiplier)
+        }
+        return nil
+    }
 }
 
 /// The JSON blob embedded in a `bandcamp.com/download?…` page.
@@ -110,11 +127,17 @@ extension BandcampClient {
         return DownloadOption(format: format, url: url, size: file.size_mb)
     }
 
-    /// Downloads `option` to a temporary file the caller then owns.
-    public func download(_ option: DownloadOption) async throws -> URL {
+    /// Downloads `option` to a temporary file the caller then owns, reporting bytes received and
+    /// expected (falling back to Bandcamp's size label when the server doesn't say).
+    public func download(
+        _ option: DownloadOption, progress: @escaping @Sendable (Int64, Int64?) -> Void = { _, _ in }
+    ) async throws -> URL {
         var request = URLRequest(url: try await fileURL(for: option.url))
         request.setValue("identity=\(identity)", forHTTPHeaderField: "Cookie")
-        let (file, response) = try await transport.download(for: request)
+        let fallback = option.approximateBytes
+        let (file, response) = try await transport.download(for: request) { received, expected in
+            progress(received, expected ?? fallback)
+        }
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? 0
         guard (200..<300).contains(status) else {

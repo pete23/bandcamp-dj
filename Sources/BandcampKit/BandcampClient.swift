@@ -2,15 +2,21 @@ import Foundation
 
 public protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
-    /// Saves the body to a temporary file the caller then owns.
-    func download(for request: URLRequest) async throws -> (URL, URLResponse)
+    /// Saves the body to a temporary file the caller then owns, reporting bytes received and
+    /// (when known) expected along the way.
+    func download(
+        for request: URLRequest, progress: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws -> (URL, URLResponse)
 }
 
 extension HTTPTransport {
-    public func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+    public func download(
+        for request: URLRequest, progress: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws -> (URL, URLResponse) {
         let (data, response) = try await data(for: request)
         let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try data.write(to: file)
+        progress(Int64(data.count), Int64(data.count))
         return (file, response)
     }
 }
@@ -20,8 +26,39 @@ extension URLSession: HTTPTransport {
         try await data(for: request, delegate: nil)
     }
 
-    public func download(for request: URLRequest) async throws -> (URL, URLResponse) {
-        try await download(for: request, delegate: nil)
+    public func download(
+        for request: URLRequest, progress: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let observer = ProgressObserver(report: progress)
+        defer { observer.stop() }
+        return try await download(for: request, delegate: observer)
+    }
+}
+
+/// The async download API doesn't report progress, so grab the task when it's created and poll it.
+private final class ProgressObserver: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let report: @Sendable (Int64, Int64?) -> Void
+    private let lock = NSLock()
+    private var poller: Task<Void, Never>?
+
+    init(report: @escaping @Sendable (Int64, Int64?) -> Void) {
+        self.report = report
+    }
+
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+        let report = report
+        let poller = Task {
+            while !Task.isCancelled, task.state != .completed {
+                let expected = task.countOfBytesExpectedToReceive
+                report(task.countOfBytesReceived, expected > 0 ? expected : nil)
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        lock.withLock { self.poller = poller }
+    }
+
+    func stop() {
+        lock.withLock { poller }?.cancel()
     }
 }
 
