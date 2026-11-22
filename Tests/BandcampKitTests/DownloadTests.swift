@@ -128,4 +128,35 @@ private func downloadTransport(
         #expect(BandcampClient.statDownloadURL(#"{"result":"err"}"#) == nil)
         #expect(BandcampClient.statDownloadURL("nothing") == nil)
     }
+
+    @Test(arguments: [
+        ("95.5MB", Int64(100_139_008)),
+        ("1.5 GB", Int64(1_610_612_736)),
+        ("800KB", Int64(819_200)),
+        ("lots", nil),
+    ] as [(String, Int64?)])
+    func approximateBytes(label: String, expected: Int64?) {
+        let option = DownloadOption(format: .mp3320, url: URL(string: "https://x")!, size: label)
+        #expect(option.approximateBytes == expected)
+    }
+
+    @Test func downloadReportsProgressWithSizeFallback() async throws {
+        let client = BandcampClient(identity: "s", transport: downloadTransport())
+        let option = try #require(try await client.downloadOption(for: purchase(), format: .mp3320))
+        let reports = Reports()
+
+        let file = try await client.download(option) { reports.add($0, $1) }
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        // The stub knows the size, so it reports it rather than Bandcamp's label.
+        #expect(reports.last?.0 == 11)
+        #expect(reports.last?.1 == 11)
+    }
+}
+
+private final class Reports: @unchecked Sendable {
+    private let lock = NSLock()
+    private var all: [(Int64, Int64?)] = []
+    func add(_ received: Int64, _ expected: Int64?) { lock.withLock { all.append((received, expected)) } }
+    var last: (Int64, Int64?)? { lock.withLock { all.last } }
 }

@@ -20,11 +20,15 @@ struct Download: AsyncParsableCommand {
     @Option(help: "Folder to download into. (default: ~/Downloads/bandcamp-sync)", transform: { URL(filePath: ($0 as NSString).expandingTildeInPath) })
     var to = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads/bandcamp-sync")
 
+    @Option(help: "Most downloads to run at once.")
+    var parallel = 6
+
     @Flag(help: "Show what would be downloaded without downloading.")
     var dryRun = false
 
     func validate() throws {
         guard limit > 0 else { throw ValidationError("--limit must be at least 1.") }
+        guard parallel > 0 else { throw ValidationError("--parallel must be at least 1.") }
     }
 
     func run() async throws {
@@ -45,29 +49,32 @@ struct Download: AsyncParsableCommand {
         }
         print("\(missing.count) of the last \(purchases.count) purchases are not in Music.\n")
 
-        var failures = 0
-        for purchase in missing {
-            let name = "\(purchase.artist) – \(purchase.title)"
-            if dryRun {
+        let names = missing.map { "\($0.artist) – \($0.title)" }
+        if dryRun {
+            for (purchase, name) in zip(missing, names) {
                 print(downloader.isDownloaded(purchase) ? "Already downloaded: \(name)" : "Would download: \(name)")
-                continue
             }
-            do {
-                let outcome = try await downloader.download(purchase) { option in
-                    print("Downloading \(name) (\(option.size ?? "size unknown"))…")
-                }
-                switch outcome {
-                case .downloaded(let folder): print("  → \(folder.path)")
-                case .alreadyDownloaded: print("Already downloaded: \(name)")
-                case .noDownload: print("No digital download: \(name)")
-                }
-            } catch {
-                failures += 1
-                Terminal.printError("Failed: \(name): \(error.localizedDescription)")
-            }
+            return
         }
-        if failures > 0 {
-            Terminal.printError("\n\(failures) download\(failures == 1 ? "" : "s") failed.")
+
+        let initial = missing.map { purchase -> DownloadStatus in
+            downloader.isDownloaded(purchase) ? .finished(.alreadyDownloaded(downloader.folder(for: purchase))) : .queued
+        }
+        let board = ProgressBoard(names: names, initial: initial, parallel: parallel)
+        board.start()
+        let pending = missing.indices.filter { initial[$0] == .queued }
+        let results = await downloader.downloadAll(pending.map { missing[$0] }, parallel: parallel) { index, status in
+            board.update(pending[index], status)
+        }
+        board.finish()
+
+        let failures = zip(pending, results).compactMap { index, status -> String? in
+            if case .failed(let message) = status { "  \(names[index]): \(message)" } else { nil }
+        }
+        let downloaded = results.filter { if case .finished(.downloaded) = $0 { true } else { false } }.count
+        print("\nDownloaded \(downloaded) to \(to.path).")
+        if !failures.isEmpty {
+            Terminal.printError("\n\(failures.count) failed:\n" + failures.joined(separator: "\n"))
             throw ExitCode.failure
         }
     }
