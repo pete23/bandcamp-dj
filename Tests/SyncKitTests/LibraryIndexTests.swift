@@ -33,6 +33,13 @@ private func track(
         track("E", artist: "Boards of Canada", album: "Inferno (Deluxe Edition) - EP"),
         track("BLAU (Live Apartamento Mix)", artist: "ASKALOTL", album: "Live Sets"),
         track("Lonely Single", artist: "Solo", album: "Lonely Single"),
+        track("F", artist: "Thomas Ragsdale", album: "Live in Margate"),
+        track("G", artist: "Surgeon", album: "IT045 Surgeon - Europa Code"),
+        track("H", artist: "Soreab", album: "AM004: Perspectives"),
+        track("I", artist: "Multiples (Speedy J & Surgeon)", album: "Two Hours Or Something"),
+        track("J", artist: "Scanner", album: "Scanner"),
+        track("K", artist: "Kaitlyn", album: "Ecstatic Computation (light-years reissue)"),
+        track("L", artist: "Kaitlyn", album: "Ecstatic Computation"),
     ])
 
     @Test func matchesAlbumByTitleAndArtist() {
@@ -78,6 +85,43 @@ private func track(
         #expect(index.match(purchase("Boards of Canada", "Inferno", type: .package)) != nil)
     }
 
+    @Test func artistNameInTitleIsIgnored() {
+        #expect(index.match(purchase("Thomas Ragsdale", "Thomas Ragsdale Live in Margate"))?.title == "Live in Margate")
+    }
+
+    @Test func catalogNumbersAreIgnored() {
+        #expect(index.match(purchase("Surgeon", "IT045 - Europa Code"))?.title == "IT045 Surgeon - Europa Code")
+        #expect(index.match(purchase("Soreab", "Perspectives"))?.title == "AM004: Perspectives")
+    }
+
+    @Test func bracketedArtistCreditsAreIgnored() {
+        #expect(index.match(purchase("Multiples (Surgeon x Speedy J)", "Two Hours Or Something")) != nil)
+    }
+
+    @Test func strippingNeverLeavesTooLittle() {
+        #expect(index.match(purchase("Scanner", "Scanner 2")) == nil)
+        #expect(index.match(purchase("Scanner", "Scanner")) != nil)
+    }
+
+    @Test func exactTitleBeatsLooseOne() {
+        for _ in 0..<5 {
+            #expect(index.match(purchase("Kaitlyn", "Ecstatic Computation"))?.title == "Ecstatic Computation")
+        }
+    }
+
+    @Test(arguments: [
+        ("it045 europa code", "europa code"),
+        ("ihndigs024 2024 sampler", "2024 sampler"),
+        ("am004 perspectives", "perspectives"),
+        ("europa code", "europa code"),
+        ("scanner 2", "scanner 2"),
+        ("abc12345 too many digits", "abc12345 too many digits"),
+        ("it045", "it045"),
+    ])
+    func catalogNumbers(input: String, expected: String) {
+        #expect(LibraryIndex.withoutCatalogNumber(input) == expected)
+    }
+
     @Test func trackPurchasesMatchTracks() {
         let match = index.match(purchase("ASKALOTL", "BLAU (Live Apartamento Mix)", type: .track))
         #expect(match == LibraryMatch(
@@ -109,5 +153,7 @@ private func track(
         #expect(LibraryIndex.titleKeys("Astro") == ["astro"])
         #expect(LibraryIndex.titleKeys("Inferno (Deluxe) - EP") == ["inferno deluxe ep", "inferno"])
         #expect(LibraryIndex.titleKeys("EP") == ["ep"])
+        #expect(LibraryIndex.titleKeys("IT045 Surgeon - Europa Code", artists: ["surgeon"])
+            == ["it045 surgeon europa code", "europa code"])
     }
 }
