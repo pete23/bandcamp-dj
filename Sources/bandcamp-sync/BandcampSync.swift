@@ -7,7 +7,7 @@ struct BandcampSync: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bandcamp-sync",
         abstract: "Sync your Bandcamp purchases into Apple Music.",
-        subcommands: [List.self, Music.self, Missing.self, Download.self]
+        subcommands: [List.self, Music.self, Missing.self, Download.self, Import.self]
     )
 }
 

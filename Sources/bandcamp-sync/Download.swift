@@ -18,10 +18,15 @@ struct Download: AsyncParsableCommand {
     var format = DownloadFormat.mp3320
 
     @Option(help: "Folder to download into. (default: ~/Downloads/bandcamp-sync)", transform: { URL(filePath: ($0 as NSString).expandingTildeInPath) })
-    var to = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads/bandcamp-sync")
+    var to = Self.defaultFolder
+
+    static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads/bandcamp-sync")
 
     @Option(help: "Most downloads to run at once.")
     var parallel = 6
+
+    @Flag(name: .customLong("import"), help: "Then add the downloads to Music, as the import command does.")
+    var importToMusic = false
 
     @Flag(help: "Show what would be downloaded without downloading.")
     var dryRun = false
@@ -75,7 +80,16 @@ struct Download: AsyncParsableCommand {
         print("\nDownloaded \(downloaded) to \(to.path).")
         if !failures.isEmpty {
             Terminal.printError("\n\(failures.count) failed:\n" + failures.joined(separator: "\n"))
-            throw ExitCode.failure
         }
+
+        if importToMusic {
+            let importer = Importer(source: to)
+            let folders = try missing.map(downloader.folder(for:)).compactMap(importer.folder(at:))
+            if !folders.isEmpty {
+                print()
+                try Import.importAll(folders, with: importer, index: index, dryRun: false)
+            }
+        }
+        if !failures.isEmpty { throw ExitCode.failure }
     }
 }
