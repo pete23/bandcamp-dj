@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "MusicLibraryKit", targets: ["MusicLibraryKit"]),
         .library(name: "SyncKit", targets: ["SyncKit"]),
         .executable(name: "bandcamp-sync", targets: ["bandcamp-sync"]),
+        .executable(name: "BandcampSyncApp", targets: ["BandcampSyncApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
@@ -26,6 +27,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .executableTarget(name: "BandcampSyncApp", dependencies: ["BandcampKit", "MusicLibraryKit", "SyncKit"]),
         .testTarget(
             name: "BandcampKitTests",
             dependencies: ["BandcampKit"],
