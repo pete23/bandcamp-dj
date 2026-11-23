@@ -12,18 +12,16 @@ struct Download: AsyncParsableCommand {
         discussion: "Each purchase goes in its own folder; ones already downloaded there are skipped.")
 
     @Option(help: "How many recent purchases to check.")
-    var limit = 50
+    var limit = Sync.defaultLimit
 
     @Option(help: "Audio format.")
-    var format = DownloadFormat.mp3320
+    var format = Sync.defaultFormat
 
     @Option(help: "Folder to download into. (default: ~/Downloads/bandcamp-sync)", transform: { URL(filePath: ($0 as NSString).expandingTildeInPath) })
-    var to = Self.defaultFolder
-
-    static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads/bandcamp-sync")
+    var to = Sync.defaultFolder
 
     @Option(help: "Most downloads to run at once.")
-    var parallel = 6
+    var parallel = Sync.defaultParallel
 
     @Flag(name: .customLong("import"), help: "Then add the downloads to Music, as the import command does.")
     var importToMusic = false
@@ -37,16 +35,10 @@ struct Download: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let (identity, purchases) = try await withIdentity(
-            credentials: Credentials(),
-            interactive: isatty(STDIN_FILENO) == 1,
-            prompt: Terminal.promptForIdentity,
-            saved: { Terminal.printError("Saved identity cookie to \($0.path).") },
-            operation: { ($0, try await BandcampClient(identity: $0).purchases(limit: limit)) }
-        )
-        let index = LibraryIndex(tracks: try MusicLibrary.tracks())
-        let missing = purchases.filter { index.match($0) == nil }
-        let downloader = Downloader(client: BandcampClient(identity: identity), format: format, destination: to)
+        let (identity, purchases) = try await Terminal.recentPurchases(limit: limit)
+        let sync = Sync(client: BandcampClient(identity: identity), format: format, folder: to)
+        let missing = try sync.items(for: purchases, index: LibraryIndex(tracks: try MusicLibrary.tracks()))
+            .filter { !$0.isInMusic }
 
         guard !missing.isEmpty else {
             print("All of the last \(purchases.count) purchases are already in Music.")
@@ -54,22 +46,22 @@ struct Download: AsyncParsableCommand {
         }
         print("\(missing.count) of the last \(purchases.count) purchases are not in Music.\n")
 
-        let names = missing.map { "\($0.artist) – \($0.title)" }
+        let names = missing.map { "\($0.purchase.artist) – \($0.purchase.title)" }
+        let initial = missing.map { item -> DownloadStatus in
+            if case .downloaded(let folder) = item.stage { .finished(.alreadyDownloaded(folder.url)) } else { .queued }
+        }
         if dryRun {
-            for (purchase, name) in zip(missing, names) {
-                print(downloader.isDownloaded(purchase) ? "Already downloaded: \(name)" : "Would download: \(name)")
+            for (status, name) in zip(initial, names) {
+                print(status == .queued ? "Would download: \(name)" : "Already downloaded: \(name)")
             }
             return
         }
 
-        let initial = missing.map { purchase -> DownloadStatus in
-            downloader.isDownloaded(purchase) ? .finished(.alreadyDownloaded(downloader.folder(for: purchase))) : .queued
-        }
         let board = ProgressBoard(names: names, initial: initial, parallel: parallel)
         board.start()
         let pending = missing.indices.filter { initial[$0] == .queued }
-        let results = await downloader.downloadAll(pending.map { missing[$0] }, parallel: parallel) { index, status in
-            board.update(pending[index], status)
+        let results = await sync.downloader.downloadAll(pending.map { missing[$0].purchase }, parallel: parallel) {
+            board.update(pending[$0], $1)
         }
         board.finish()
 
@@ -83,11 +75,10 @@ struct Download: AsyncParsableCommand {
         }
 
         if importToMusic {
-            let importer = Importer(source: to)
-            let folders = try missing.map(downloader.folder(for:)).compactMap(importer.folder(at:))
+            let folders = try sync.foldersToImport(missing)
             if !folders.isEmpty {
                 print()
-                try Import.importAll(folders, with: importer, index: index, dryRun: false)
+                try await Import.importAll(folders, with: sync.importer)
             }
         }
         if !failures.isEmpty { throw ExitCode.failure }

@@ -6,10 +6,14 @@ import SyncKit
 
 struct Missing: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "List recent Bandcamp purchases that aren't in your Music library.")
+        abstract: "List recent Bandcamp purchases that aren't in your Music library.",
+        discussion: "Shows how far each has got: not downloaded, or downloaded and waiting to be imported.")
 
     @Option(help: "How many recent purchases to check.")
-    var limit = 50
+    var limit = Sync.defaultLimit
+
+    @Option(help: "Folder purchases are downloaded into. (default: ~/Downloads/bandcamp-sync)", transform: { URL(filePath: ($0 as NSString).expandingTildeInPath) })
+    var downloads = Sync.defaultFolder
 
     @Flag(help: "Also show purchases that are in the library, and what they matched.")
     var matched = false
@@ -22,32 +26,23 @@ struct Missing: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let purchases = try await withIdentity(
-            credentials: Credentials(),
-            interactive: isatty(STDIN_FILENO) == 1,
-            prompt: Terminal.promptForIdentity,
-            saved: { Terminal.printError("Saved identity cookie to \($0.path).") },
-            operation: { try await BandcampClient(identity: $0).purchases(limit: limit) }
-        )
-        let index = LibraryIndex(tracks: try MusicLibrary.tracks())
-        let all = purchases.map(index.status)
-        let missingCount = all.filter(\.isMissing).count
-        let statuses = matched ? all : all.filter(\.isMissing)
+        let (identity, purchases) = try await Terminal.recentPurchases(limit: limit)
+        let sync = Sync(client: BandcampClient(identity: identity), folder: downloads)
+        let all = try sync.items(for: purchases, index: LibraryIndex(tracks: try MusicLibrary.tracks()))
+        let missingCount = all.filter { !$0.isInMusic }.count
+        let items = matched ? all : all.filter { !$0.isInMusic }
 
         if json {
-            print(try Output.json(statuses))
+            print(try Output.json(items))
             return
         }
-        if !statuses.isEmpty {
-            let header = ["Date", "Artist", "Title", "Type"] + (matched ? ["In Music"] : [])
-            print(Output.table(header, statuses.map { status in
-                let p = status.purchase
-                let row = [Output.day(p.purchasedAt), p.artist, p.title, p.itemType.rawValue]
-                guard matched else { return row }
-                guard let m = status.match else { return row + ["MISSING"] }
-                let via = m.reason == .bandcampSite ? ", via Bandcamp link" : ""
-                return row + ["\(m.artist) – \(m.title) (\(m.kind.rawValue)\(via))"]
-            }))
+        if !items.isEmpty {
+            print(Output.table(
+                ["Date", "Artist", "Title", "Type", "Status"],
+                items.map { item in
+                    let p = item.purchase
+                    return [Output.day(p.purchasedAt), p.artist, p.title, p.itemType.rawValue, item.stage.description]
+                }))
             print()
         }
         print("\(missingCount) of the last \(purchases.count) purchases are not in Music.")

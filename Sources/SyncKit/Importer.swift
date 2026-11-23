@@ -8,7 +8,7 @@ import MusicLibraryKit
 /// library match for its purchase is imperfect (which would otherwise import it twice).
 public struct Importer: Sendable {
     /// A downloaded purchase.
-    public struct Folder: Sendable, Equatable {
+    public struct Folder: Codable, Sendable, Equatable {
         public var url: URL
         public var purchase: Purchase
         /// In path order, which is track order for Bandcamp's zips.
@@ -52,6 +52,11 @@ public struct Importer: Sendable {
             .compactMap(folder(at:))
     }
 
+    /// The folders not yet imported whose purchase isn't in the library either.
+    public func importable(index: LibraryIndex) throws -> [Folder] {
+        try folders().filter { !$0.isImported && index.match($0.purchase) == nil }
+    }
+
     /// The downloaded purchase in `url`, or nil if it has no manifest.
     public func folder(at url: URL) throws -> Folder? {
         let manifest = url.appending(path: Downloader.manifestName)
@@ -86,6 +91,27 @@ public struct Importer: Sendable {
         return .imported(added: added.count, of: folder.audioFiles.count)
     }
 
+    /// Imports `folders` one at a time (Music takes one script at a time anyway), reporting each
+    /// one's status by its index. Failures are reported and don't stop the rest, except not being
+    /// allowed to control Music, which would fail them all and is thrown.
+    public func importAll(
+        _ folders: [Folder], update: @escaping @Sendable (Int, ImportStatus) -> Void = { _, _ in }
+    ) async throws -> [ImportStatus] {
+        var results = [ImportStatus](repeating: .queued, count: folders.count)
+        for (index, folder) in folders.enumerated() {
+            update(index, .importing)
+            do {
+                results[index] = .finished(try importFolder(folder))
+            } catch MusicAppError.notAuthorized {
+                throw MusicAppError.notAuthorized
+            } catch {
+                results[index] = .failed(error.localizedDescription)
+            }
+            update(index, results[index])
+        }
+        return results
+    }
+
     static func audioFiles(in folder: URL) -> [URL] {
         let files = FileManager.default.enumerator(
             at: folder, includingPropertiesForKeys: [.isRegularFileKey], options: .skipsHiddenFiles)
@@ -93,6 +119,14 @@ public struct Importer: Sendable {
             .filter { audioExtensions.contains($0.pathExtension.lowercased()) }
             .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
+}
+
+/// One folder's place in a batch of imports.
+public enum ImportStatus: Sendable, Equatable {
+    case queued
+    case importing
+    case finished(Importer.Outcome)
+    case failed(String)
 }
 
 public enum ImportError: Error, CustomStringConvertible, LocalizedError {

@@ -25,13 +25,7 @@ struct List: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let purchases = try await withIdentity(
-            credentials: Credentials(),
-            interactive: isatty(STDIN_FILENO) == 1,
-            prompt: Terminal.promptForIdentity,
-            saved: { Terminal.printError("Saved identity cookie to \($0.path).") },
-            operation: { try await BandcampClient(identity: $0).purchases(limit: limit) }
-        )
+        let purchases = try await Terminal.recentPurchases(limit: limit).purchases
         if json {
             print(try Output.json(purchases))
         } else if purchases.isEmpty {

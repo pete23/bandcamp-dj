@@ -6,6 +6,18 @@ enum Terminal {
         FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 
+    /// The most recent purchases and the identity cookie that fetched them, asking for the
+    /// cookie when there is none or Bandcamp rejects it.
+    static func recentPurchases(limit: Int) async throws -> (identity: String, purchases: [Purchase]) {
+        try await withIdentity(
+            credentials: Credentials(),
+            interactive: isatty(STDIN_FILENO) == 1,
+            prompt: promptForIdentity,
+            saved: { printError("Saved identity cookie to \($0.path).") },
+            operation: { ($0, try await BandcampClient(identity: $0).purchases(limit: limit)) }
+        )
+    }
+
     /// Asks for the identity cookie on the terminal without echoing it.
     static func promptForIdentity(_ reason: PromptReason) throws -> String? {
         if reason == .rejected {

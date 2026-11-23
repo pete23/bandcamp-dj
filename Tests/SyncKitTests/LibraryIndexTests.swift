@@ -132,12 +132,6 @@ private func track(
         #expect(index.match(purchase("ASKALOTL", "BLAU (Live Apartamento Mix)")) == nil)
     }
 
-    @Test func statusReportsMissing() {
-        let status = index.status(of: purchase("Nobody", "Nothing"))
-        #expect(status.isMissing)
-        #expect(!index.status(of: purchase("Donato Dozzy", "Astro")).isMissing)
-    }
-
     @Test(arguments: [
         ("Ágætis byrjun", "agaetis byrjun"),
         ("ugne&maria", "ugne and maria"),

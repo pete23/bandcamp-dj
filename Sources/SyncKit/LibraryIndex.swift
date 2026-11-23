@@ -19,14 +19,6 @@ public struct LibraryMatch: Codable, Sendable, Equatable {
     public var reason: Reason
 }
 
-public struct PurchaseStatus: Codable, Sendable, Equatable {
-    public var purchase: Purchase
-    /// Nil when the purchase isn't in the library.
-    public var match: LibraryMatch?
-
-    public var isMissing: Bool { match == nil }
-}
-
 /// Looks up Bandcamp purchases in a set of library tracks.
 public struct LibraryIndex: Sendable {
     struct Candidate: Sendable {
@@ -73,10 +65,6 @@ public struct LibraryIndex: Sendable {
                 albums[key, default: []].append((rank, candidate))
             }
         }
-    }
-
-    public func status(of purchase: Purchase) -> PurchaseStatus {
-        PurchaseStatus(purchase: purchase, match: match(purchase))
     }
 
     public func match(_ purchase: Purchase) -> LibraryMatch? {

@@ -35,7 +35,11 @@ public struct Downloader: Sendable {
     }
 
     public func folder(for purchase: Purchase) -> URL {
-        destination.appending(path: Self.safeName("\(purchase.artist) - \(purchase.title)"), directoryHint: .isDirectory)
+        Self.folder(for: purchase, in: destination)
+    }
+
+    public static func folder(for purchase: Purchase, in destination: URL) -> URL {
+        destination.appending(path: safeName("\(purchase.artist) - \(purchase.title)"), directoryHint: .isDirectory)
     }
 
     public func isDownloaded(_ purchase: Purchase) -> Bool {

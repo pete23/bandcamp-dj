@@ -9,13 +9,18 @@ public struct Credentials: Sendable {
 
     public static let environmentVariable = "BANDCAMP_IDENTITY"
 
-    public static let instructions = """
-        bandcamp-sync uses your browser's Bandcamp session cookie. To find it:
-          1. Open https://bandcamp.com in your browser and log in.
-          2. Open the developer tools and find the site's cookies
-             (Chrome: Application → Cookies; Safari/Firefox: Storage → Cookies).
-          3. Copy the cookie named "identity" (just its value, or the whole row).
-        """
+    /// How to find the cookie, one step each.
+    public static let steps = [
+        "Open https://bandcamp.com in your browser and log in.",
+        "Open the developer tools and find the site's cookies "
+            + "(Chrome: Application → Cookies; Safari/Firefox: Storage → Cookies).",
+        "Copy the cookie named \"identity\" (just its value, or the whole row).",
+    ]
+
+    public static var instructions: String {
+        "bandcamp-sync uses your browser's Bandcamp session cookie. To find it:\n"
+            + steps.enumerated().map { "  \($0 + 1). \($1)" }.joined(separator: "\n")
+    }
 
     public static var defaultDirectory: URL {
         let home = ProcessInfo.processInfo.environment["HOME"].map { URL(filePath: $0, directoryHint: .isDirectory) }
